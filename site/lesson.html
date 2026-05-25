@@ -2495,8 +2495,9 @@
           window._mermaidReady.render('mermaid-' + idx + '-svg', def).then(function (result) {
             if (target._mermaidRenderToken !== token) return;
             target.innerHTML = result.svg;
-          }).catch(function () {
+          }).catch(function (err) {
             if (target._mermaidRenderToken !== token) return;
+            console.error('mermaid render failed (block ' + idx + ')', err);
             target.innerHTML = '<p style="color:var(--text-muted);font-style:italic;">Diagram could not be rendered.</p>';
           });
         });
@@ -2607,8 +2608,9 @@
         window._mermaidReady.render('mermaid-modal-svg', def).then(function (result) {
           if (center._mermaidRenderToken !== token) return;
           center.innerHTML = result.svg;
-        }).catch(function () {
+        }).catch(function (err) {
           if (center._mermaidRenderToken !== token) return;
+          console.error('mermaid modal render failed', err);
           center.innerHTML = '<p style="color:var(--text-muted);font-style:italic;">Diagram could not be rendered.</p>';
         });
       }
