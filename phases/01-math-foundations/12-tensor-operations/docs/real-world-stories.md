@@ -2,9 +2,9 @@
 
 > Once you can read `einsum("bsh,hd->bsd")` like English, transformer code stops being magic.
 
-## The Mental Model
+## The Big Idea
 
-A tensor is an N-dimensional array. Operations on tensors are *contractions* along chosen axes. `einsum` makes the axes explicit and forces clarity.
+A tensor is an N-dimensional array. Operations on tensors are *contractions* along chosen axes. `einsum` names every axis explicitly — which forces clarity and prevents whole categories of bugs.
 
 ```mermaid
 flowchart LR
@@ -25,46 +25,51 @@ A = np.random.randn(8, 32, 16)
 B = np.random.randn(8, 16, 24)
 C = np.einsum("bmk,bkn->bmn", A, B)
 
-# Attention scores: queries · keys^T per head
+# Attention scores per head
 Q = np.random.randn(4, 8, 64, 32)   # [batch, head, seq, d_k]
 K = np.random.randn(4, 8, 64, 32)
-scores = np.einsum("bhsd,bhtd->bhst", Q, K)  # [batch, head, seq, seq]
+scores = np.einsum("bhsd,bhtd->bhst", Q, K)
 
 # Demand-tensor slice: sum across days for one origin
 demand = np.random.randn(50, 50, 7, 30, 6)  # [origin, dest, dow, days_out, fare_class]
-total_by_route = np.einsum("oddyf->od", demand)  # too many d's — invalid!
-total_by_route = demand.sum(axis=(2, 3, 4))      # axis-sum is the same idea
+total_by_route = demand.sum(axis=(2, 3, 4))
 ```
 
 ## Code: Why the Wrong Contraction Wastes Network
 
 ```python
 import numpy as np
-# Two equivalent computations — same result, very different communication cost in tensor-parallel:
 
-# A: [batch, seq, hidden=4096], W: [hidden=4096, d_out=1024]
 A = np.random.randn(64, 128, 4096)
 W = np.random.randn(4096, 1024)
 
-# Path 1: standard
+# Standard path
 Y1 = np.einsum("bsh,hd->bsd", A, W)
 
-# Path 2: if W is split across devices along d_out, each device computes a slice
-# and concatenates — no all-reduce needed.
-# If W is split along `hidden`, each device computes partial sums, and an
-# all-reduce is required — much more communication for the same result.
+# Split W along d_out → no cross-device sync needed.
+# Split W along hidden → every device computes a partial sum,
+#   then an all-reduce. Same answer, way more network traffic.
 ```
 
-## Amazon — Trainium Tensor Parallelism
+## Story 1: Amazon — Why the Wrong Tensor Split Costs Hours of Training Time
 
-AWS Trainium chips split a `[batch, seq, hidden]` activation tensor across devices. Splitting the hidden axis on the right matmul keeps comms cheap; splitting wrong forces an all-reduce that dominates wall time. The AWS team writes Trainium-optimized kernels because they treat `einsum` notation as a *load-balancing language*, not just math.
+AWS Trainium chips split a `[batch, seq, hidden]` activation tensor across many devices. Sounds boring. But *which axis* you split on decides whether the devices need to talk to each other constantly or barely at all.
 
-## American Airlines — Demand Tensor
+Split the right axis on a given matmul → each device computes its slice independently, then concatenates. Cheap.
+Split the wrong axis → every device computes a partial sum and you need a network-wide all-reduce. Expensive.
 
-AA models demand as a 5D tensor `[origin, destination, day-of-week, days-out, fare-class]` — billions of cells. Common queries are tensor contractions: "all flights into MIA next Tuesday" sums along three axes. Doing this with pandas groupbys takes minutes; doing it with tensor contractions on a GPU takes milliseconds. Pricing engineers update fares 100x faster when they think in tensors.
+The AWS team writes their kernels by treating `einsum` notation as a *load-balancing language* — the axis letters tell you who needs to talk to whom.
 
-## Takeaways
+## Story 2: American Airlines — Updating Fares 100x Faster by Thinking in Tensors
 
-- `einsum` is a contract that names every axis — use it.
-- The shape signature is documentation; if you can't write it, you don't understand the op.
-- For distributed training, choosing *which axis* to split is a tensor-ops question.
+AA models demand as a 5D tensor: origin × destination × day-of-week × days-out × fare-class. Billions of cells.
+
+A typical pricing question — "all flights into MIA next Tuesday" — is just summing three axes of that tensor. Done as pandas groupbys it takes minutes. Done as a tensor contraction on a GPU it takes milliseconds.
+
+Pricing engineers who think in tensors update fares 100x faster. Same data, same answer — different mental model.
+
+## Remember This
+
+- `einsum` is a contract that names every axis. Use it.
+- The shape signature *is* the documentation. If you can't write it, you don't understand the op.
+- For distributed training, "which axis do I split on?" is a tensor-ops question.

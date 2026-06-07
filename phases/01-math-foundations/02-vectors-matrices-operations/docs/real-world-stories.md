@@ -1,14 +1,14 @@
 # Vectors & Matrices Operations — Real-World Stories
 
-> Microseconds matter when your matmul runs a billion times a day.
+> The same math, written two different ways, can run 100x faster. Microseconds matter when your matmul runs a billion times a day.
 
-## The Mental Model
+## The Big Idea
 
-`A @ B` is not just multiplication — it's a *memory access pattern*. The same math, written two different ways, can be 10x faster or slower depending on cache lines and SIMD.
+`A @ B` isn't just multiplication. It's a *memory pattern*. If your CPU can keep the right chunks in cache and use SIMD, you fly. If it can't, the same answer takes 100x longer.
 
 ```mermaid
 flowchart TB
-    subgraph Slow["Loop version (cache-miss heavy)"]
+    subgraph Slow["Triple loop (cache misses everywhere)"]
         A1["for i, j, k:<br/>C[i,j] += A[i,k] * B[k,j]"]
     end
     subgraph Fast["Vectorized matmul"]
@@ -20,7 +20,7 @@ flowchart TB
     style Slow fill:#f4cccc
 ```
 
-## Code: The Same Operation, Two Costs
+## Code: Same Operation, Two Costs
 
 ```python
 import numpy as np, time
@@ -28,7 +28,6 @@ import numpy as np, time
 A = np.random.randn(1024, 1024).astype(np.float32)
 B = np.random.randn(1024, 1024).astype(np.float32)
 
-# Naive triple loop
 def slow_matmul(A, B):
     n, m = A.shape[0], B.shape[1]
     C = np.zeros((n, m), dtype=np.float32)
@@ -38,54 +37,49 @@ def slow_matmul(A, B):
                 C[i, j] += A[i, k] * B[k, j]
     return C
 
-# Vectorized
-t0 = time.time(); C1 = A @ B; t1 = time.time()
+t0 = time.time(); A @ B; t1 = time.time()
 print(f"vectorized: {(t1-t0)*1000:.2f} ms")
 
-# (Don't actually run slow_matmul on 1024x1024 — it would take minutes.)
-# Use 64x64 to see the gap:
+# Try the loop on a smaller block to see the gap
 A_small, B_small = A[:64,:64], B[:64,:64]
 t0 = time.time(); slow_matmul(A_small, B_small); t1 = time.time()
 print(f"loop 64x64: {(t1-t0)*1000:.2f} ms")
-t0 = time.time(); A_small @ B_small; t1 = time.time()
-print(f"vec  64x64: {(t1-t0)*1000:.2f} ms")
 ```
 
-## Code: Broadcasting Replaces Loops
+## Code: Broadcasting Beats Loops
 
 ```python
-# Compute pairwise distances between N queries and M products
-queries  = np.random.randn(1000, 128)   # (N, D)
-products = np.random.randn(50000, 128)  # (M, D)
-
-# Wrong: explicit loop — slow
-# for q in queries:
-#     for p in products: ...
+queries  = np.random.randn(1000, 128)
+products = np.random.randn(50000, 128)
 
 # Right: broadcasting
-diffs = queries[:, None, :] - products[None, :, :]  # (N, M, D)
-dists = np.linalg.norm(diffs, axis=2)               # (N, M)
+diffs = queries[:, None, :] - products[None, :, :]
+dists = np.linalg.norm(diffs, axis=2)
 
-# Even better: use the algebraic identity ||a-b||^2 = ||a||^2 + ||b||^2 - 2 a·b
+# Even better: ||a-b||^2 = ||a||^2 + ||b||^2 - 2 a·b
 q2 = (queries ** 2).sum(1)[:, None]
 p2 = (products ** 2).sum(1)[None, :]
 dists_sq = q2 + p2 - 2 * queries @ products.T
 ```
 
-## Amazon — Alexa Wake Word
+## Story 1: Amazon — How Rewriting One Matmul Saved Battery on Every Echo
 
-The wake-word detector runs as a tiny matmul (~50K params) continuously on every Echo. Rewriting `A @ B` as `(B.T @ A.T).T` to fit L2 cache cut latency 15% — at Echo scale, that's tangible battery life saved across tens of millions of devices.
+The Alexa wake-word detector is a tiny matmul that runs nonstop on every Echo. Tens of millions of devices, always on.
 
-The engineer who proposed that transformation didn't read it in a paper. They could read matmul as a memory-access pattern, not just multiplication.
+An engineer noticed it was thrashing cache. They rewrote `A @ B` as `(B.T @ A.T).T` — same answer, but the chunks fit in L2 cache now. Latency dropped 15%. Across millions of devices that's real battery saved, real money on cloud passthrough.
 
-## American Airlines — Real-Time Re-Planning
+They didn't read this trick in a paper. They could read a matmul as a memory pattern, not just arithmetic.
 
-Each flight has a payload vector `[passengers, cargo, fuel]` and a constraint matrix `[CG limits, runway length, weather margin]`. Dispatch multiplies these thousands of times per minute across ~6,700 daily flights.
+## Story 2: American Airlines — Re-Planning 6,700 Flights in Seconds, Not Hours
 
-Looping per-flight would take 4 hours batch time. Vectorizing — one giant batched matmul across all flights — lets ops re-plan in seconds when a storm grounds DFW. Engineers who didn't think in vectorized ops couldn't have built that system.
+When a storm grounds DFW, dispatch has to re-plan thousands of flights fast. Each flight has a load vector (passengers, cargo, fuel) and a constraint matrix (weight limits, runway, weather).
 
-## Takeaways
+The old code looped flight-by-flight: 4 hours. Too slow — by then the storm had moved.
 
-- Same math, different access patterns = orders of magnitude difference.
-- Broadcasting is not syntax sugar — it is the algorithm.
-- Algebraic identities (like `||a-b||^2`) often unlock the fast path.
+The fix: stack everything into one giant batched matmul. Same arithmetic, one call. Result: seconds. The engineer who wrote it thought in vectorized ops from the start — no one ever would have built the system out of for-loops.
+
+## Remember This
+
+- Same math, different memory access = orders-of-magnitude speedup.
+- Broadcasting is the algorithm, not syntax sugar.
+- Algebraic identities (like `||a-b||² = ||a||² + ||b||² − 2a·b`) often unlock the fast path.

@@ -1,10 +1,10 @@
 # Probability & Distributions — Real-World Stories
 
-> The shape of your uncertainty determines whether your business decisions are based on signal or noise.
+> Treating heavy-tailed data as Gaussian is the single most common mistake in production ML.
 
-## The Mental Model
+## The Big Idea
 
-Distributions are *not* interchangeable. Treating heavy-tailed data as Gaussian is the single most common mistake in production ML.
+Distributions are not interchangeable. The shape of your uncertainty decides whether you're reading signal or noise. Pick the wrong shape and you'll celebrate wins that aren't real.
 
 ```mermaid
 flowchart TB
@@ -28,19 +28,16 @@ import numpy as np
 from scipy import stats
 
 np.random.seed(0)
-# Heavy-tailed revenue (log-normal): most sessions $0-$50, occasional $5000
+# Heavy-tailed revenue: most sessions $0-$50, rare $5000
 control   = np.random.lognormal(mean=2.0, sigma=1.5, size=10_000)
 treatment = np.random.lognormal(mean=2.05, sigma=1.5, size=10_000)
 
-# Naive t-test (assumes Gaussian)
 t, p = stats.ttest_ind(control, treatment)
 print(f"t-test p = {p:.4f}  (often spuriously significant)")
 
-# Better: work in log-space where the distribution is symmetric
 t_log, p_log = stats.ttest_ind(np.log(control), np.log(treatment))
 print(f"log t-test p = {p_log:.4f}")
 
-# Or: rank-based (no distribution assumption)
 u, p_u = stats.mannwhitneyu(control, treatment)
 print(f"Mann-Whitney p = {p_u:.4f}")
 ```
@@ -50,32 +47,35 @@ print(f"Mann-Whitney p = {p_u:.4f}")
 ```python
 import numpy as np
 
-# Per-route no-show rates differ — pooling hides the variation
 routes = ["DFW-LAX", "DFW-MIA", "JFK-LHR"]
 trials = np.array([1000, 1000, 1000])
 no_shows = np.array([80, 120, 30])
 
-# Pooled rate
 pooled = no_shows.sum() / trials.sum()
 print(f"Pooled rate: {pooled:.3f}")
 
-# Per-route Beta posterior (uniform prior)
 for r, n, k in zip(routes, trials, no_shows):
     a, b = 1 + k, 1 + (n - k)
     mean, lo, hi = a/(a+b), *np.percentile(np.random.beta(a, b, 50_000), [2.5, 97.5])
     print(f"{r}: mean={mean:.3f}  95% CI=[{lo:.3f}, {hi:.3f}]")
 ```
 
-## Amazon — A/B Testing Revenue per Session
+## Story 1: Amazon — How One $50,000 Order Made a Buy Box Experiment "Win"
 
-Buy Box experiments measure revenue per session — a log-normal distribution. Naive t-tests yielded "significant" results from outliers (one $50,000 enterprise order). The Buy Box team now requires analysts to either log-transform, use rank tests, or use bootstrap CIs. Skipping that step cost an estimated 8-figure sum across years before the rule was enforced.
+The Buy Box team measures revenue per session. Revenue is heavy-tailed — most sessions are zero or small, occasionally a giant enterprise order. That's log-normal, not bell-shaped.
 
-## American Airlines — Overbooking by Route
+For years, analysts ran t-tests anyway. One whale order would tip a p-value below 0.05. Features got shipped on noise. Estimated cost: eight figures across the years before someone enforced the rule "log-transform first, or use a rank test, or bootstrap."
 
-A single global no-show rate overbooks Miami-bound holiday flights (high actual no-show) too little and overbooks JFK-LHR (low no-show) too much. Switching to a per-route Beta-Binomial with hierarchical pooling captured the variance — estimated $50M/year in improved load factor without measurably increasing involuntary denied boardings.
+The math wasn't exotic. The team just needed enough probability literacy to recognize the wrong tool was being used.
 
-## Takeaways
+## Story 2: American Airlines — Why One Global No-Show Rate Loses $50M a Year
 
-- Choose the distribution that matches the *data-generating process*, not the default.
-- Log-normal lurks everywhere money is involved.
+Holiday Miami flights have a high no-show rate. London business routes have a low one. A single global average overbooks Miami too little (empty seats fly) and London too much (involuntary bumps).
+
+The team switched to per-route Beta-Binomial with hierarchical pooling — each route gets its own estimate, but rare routes borrow strength from the average. Estimated $50M/year in better load factor, without measurably more bumped passengers.
+
+## Remember This
+
+- Pick the distribution that matches how the data was *generated*, not the default.
+- Anywhere money is involved, suspect log-normal.
 - For rates (CTR, no-show, conversion), Beta is your default — and credible intervals beat p-values for decisions.

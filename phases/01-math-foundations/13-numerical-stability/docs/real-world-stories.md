@@ -1,10 +1,10 @@
 # Numerical Stability — Real-World Stories
 
-> "The model just stopped learning." 90% of the time it's a numerical bug — underflow, overflow, or catastrophic cancellation.
+> "The model just stopped learning." Nine times out of ten it's a numerical bug — underflow, overflow, or catastrophic cancellation.
 
-## The Mental Model
+## The Big Idea
 
-Floats are not real numbers. They have finite precision. Operations like `large - large`, `exp(big)`, `log(0)` go wrong silently and corrupt downstream math.
+Floats are not real numbers. They have finite precision. Things like `large - large`, `exp(very_big)`, or `log(0)` go wrong silently and poison whatever math runs next.
 
 ```mermaid
 flowchart TB
@@ -21,12 +21,10 @@ flowchart TB
 ```python
 import numpy as np
 
-# Naive — overflows for large logits
 def softmax_naive(x):
     e = np.exp(x)
     return e / e.sum()
 
-# Stable — subtract max first
 def softmax_stable(x):
     x = x - x.max()
     e = np.exp(x)
@@ -42,16 +40,14 @@ print(softmax_stable(x))  # [0.09, 0.24, 0.67]
 ```python
 import numpy as np
 
-# Subtracting near-equal numbers in fp32
 a = np.float32(1.0)
 b = np.float32(1.0 + 1e-7)
-print("fp32 a-b:", b - a)         # noise — most digits lost
+print("fp32 a-b:", b - a)         # noise — digits gone
 
-# In fp64 it's fine
 print("fp64 a-b:", np.float64(b) - np.float64(a))
 
-# Algebraic rewrites avoid the subtraction:
-# Instead of  sqrt(1+x) - 1, use  x / (sqrt(1+x) + 1)
+# Algebraic rewrite avoids the subtraction:
+# sqrt(1+x) - 1  →  x / (sqrt(1+x) + 1)
 x = np.float32(1e-7)
 bad  = np.sqrt(1 + x) - 1
 good = x / (np.sqrt(1 + x) + 1)
@@ -67,21 +63,29 @@ scaler = torch.cuda.amp.GradScaler()
 for x, y in []:  # placeholder loop
     with torch.cuda.amp.autocast():
         loss = ...
-    scaler.scale(loss).backward()   # scale up so tiny grads don't underflow
-    scaler.step(optimizer)          # unscale and step
+    scaler.scale(loss).backward()
+    scaler.step(optimizer)
     scaler.update()
 ```
 
-## Amazon — Mixed Precision on AWS Training Clusters
+## Story 1: Amazon — Why a Big Language Model Trained in fp16 Quietly Stalled
 
-Training a large language model in fp16 saves ~50% memory but underflows tiny gradients silently — the model appears to stall. AWS's training teams introduced loss scaling (multiply loss by a large factor before backward, unscale grads before stepping) to keep gradients in fp16's representable range. Without numerical-stability literacy, engineers would chase architecture changes for weeks and never find the issue.
+Training a large language model in fp16 saves about half the memory. Great — until tiny gradients fall below what fp16 can represent. They round to zero. The model looks like it's training but learns nothing.
 
-## American Airlines — Revenue Management Catastrophic Cancellation
+The fix: loss scaling. Multiply the loss by a big number before `.backward()`, then unscale the gradients before stepping. That pushes tiny gradients back into the representable range.
 
-A revenue management solver was subtracting two near-equal large numbers in fp32: forecasted vs realized revenue, both around $1B. The difference (the model's error) was the size of cents — but fp32 only has ~7 significant digits, so the result was pure noise. Projections were corrupted by tens of millions. The fix: do that specific subtraction in fp64. One line. Only an engineer who knew the term "catastrophic cancellation" by name could diagnose it.
+Without numerical-stability literacy, the team would have spent weeks blaming architecture choices. With it, the fix was a one-class wrapper around the optimizer.
 
-## Takeaways
+## Story 2: American Airlines — How Catastrophic Cancellation Burned Tens of Millions in Forecasts
 
-- `softmax`, `logsumexp`, and `log(p)` all need numerically stable forms.
-- Cancellation: avoid subtracting two near-equal numbers — rewrite algebraically.
-- Mixed precision needs loss scaling; "model not learning" + fp16 = suspect underflow first.
+A revenue management solver was subtracting two nearly equal large numbers in fp32: forecasted revenue minus realized revenue, both around $1 billion. The difference — the model's actual error — was the size of cents.
+
+But fp32 only has ~7 significant digits. Subtracting `1,000,000,000.00` from `1,000,000,000.05` gives you garbage, not five cents. Years of forecasts were corrupted by tens of millions before someone diagnosed it.
+
+The fix: do that one subtraction in fp64. Literally one line. But finding it required knowing the phrase "catastrophic cancellation" exists.
+
+## Remember This
+
+- `softmax`, `logsumexp`, `log(p)` — all need numerically stable forms.
+- Never subtract two near-equal numbers. Rewrite the formula instead.
+- Mixed precision needs loss scaling. "Model not learning" + fp16 = suspect underflow first.

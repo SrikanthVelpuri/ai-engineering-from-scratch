@@ -1,10 +1,10 @@
 # Linear Algebra Intuition — Real-World Stories
 
-> Why vector geometry is the difference between fixing a search bug in 20 minutes vs. shipping a workaround that lasts 6 quarters.
+> When you can *see* vectors as arrows in space, you fix bugs in 20 minutes that others paper over for years.
 
-## The Mental Model
+## The Big Idea
 
-Every ML model lives in vector space. A model "understands" something when it places similar things near each other and dissimilar things far apart. Linear algebra is the language of that geometry.
+Every ML model lives in vector space. It "understands" something by placing similar things close together and different things far apart. Linear algebra is just the language for talking about that geometry.
 
 ```mermaid
 flowchart LR
@@ -18,7 +18,7 @@ flowchart LR
     style G fill:#ffd966
 ```
 
-## Code: Why Cosine Similarity Loses Signal on Modifiers
+## Code: Why Adding a Modifier Can Wash Out the Signal
 
 ```python
 import numpy as np
@@ -30,33 +30,35 @@ def cosine(a, b):
 shoes              = np.array([1.0, 0.0])
 running_shoes      = np.array([0.95, 0.1])
 flat_feet_shoes    = np.array([0.6, 0.8])      # modifier rotates the vector
-flat_feet_modifier = np.array([0.0, 1.0])      # near-orthogonal to base
+flat_feet_modifier = np.array([0.0, 1.0])      # near-perpendicular to base
 
-query = (running_shoes + flat_feet_modifier)   # naive combine
+query = (running_shoes + flat_feet_modifier)
 query /= np.linalg.norm(query)
 
 for name, v in [("shoes", shoes), ("running", running_shoes), ("flat-feet", flat_feet_shoes)]:
     print(f"{name:12s}: cos = {cosine(query, v):.3f}")
 ```
 
-The lesson: when a modifier vector is near-orthogonal to the base, naive vector addition dilutes the base signal. The fix is concatenation or cross-attention — not a regex.
+The lesson: if the modifier points in a perpendicular direction, naive addition dilutes the main word. Fix it with concatenation or cross-attention — not a regex.
 
-## Amazon — Product Search Ranking
+## Story 1: Amazon — Why "Shoes for Flat Feet" Showed Generic Shoes
 
-A query like `"running shoes for flat feet"` becomes a 768-dim vector. Ranking is the dot product of that query with each of ~600M product vectors. When the modifier `"for flat feet"` lives in a near-orthogonal direction to `"running shoes"`, the dot product collapses to nearly the base signal — search shows generic running shoes and the customer bounces.
+A customer searches `"running shoes for flat feet"`. Search turns that into a 768-number vector and dot-products it against 600 million product vectors. Sounds clean.
 
-An engineer who *sees* this geometrically proposes a cross-attention re-ranker that scores the modifier against product attributes directly. An engineer without that intuition writes a regex for "flat feet" and patches the symptom for one query.
+But the words `"for flat feet"` push the query into a direction the product vectors barely look at. So the dot product mostly measures `"running shoes"` and the customer sees… running shoes. They bounce.
 
-## American Airlines — Crew Pairing Feasibility
+The engineer who pictures this geometrically says: "the modifier is orthogonal — let's add a cross-attention re-ranker." The engineer who doesn't writes a `if "flat feet" in query` regex and patches one search. The first solution fixes a class of bugs. The second one ships ten more next quarter.
 
-Each flight leg is a constraint vector (departure airport, arrival, time, equipment). Each pilot's monthly schedule is a point in a high-dimensional feasibility polytope defined by FAA rest rules and union contracts.
+## Story 2: American Airlines — Why Two Look-Alike Layovers Crashed the Solver
 
-When two constraint vectors become nearly parallel (e.g., two near-identical layovers a few hours apart), the LP solver hits numerical degeneracy and may emit an infeasible pairing. At AA's volume of ~6,700 daily flights, even 0.01% bad pairings strand 30+ flights/day.
+Each flight leg is a constraint. Each pilot's monthly schedule is a point inside a giant cage of rules (FAA rest, union contracts). Standard linear programming.
 
-The engineer who sees "near-parallel constraint vectors" instead of "weird solver bug" knows to preprocess with column-pivoted QR to detect the degeneracy *before* the LP runs.
+The problem: when two constraint vectors are nearly parallel — say, two near-identical layovers a few hours apart — the solver sees them as duplicates and goes wobbly. At 6,700 flights a day, even 0.01% bad pairings strand 30+ flights.
 
-## Takeaways
+The engineer who reads "near-parallel constraint vectors" instead of "weird solver bug" knows to do a QR pre-check to spot duplicates *before* the solver runs.
 
-- Vectors are not lists of numbers — they are *directions and magnitudes*.
-- Dot products measure alignment; orthogonality means independence.
-- When models fail, ask "what does this look like geometrically?" before patching code.
+## Remember This
+
+- Vectors are directions, not lists of numbers.
+- Dot product measures alignment; perpendicular means independent.
+- When something breaks, ask "what does this look like geometrically?" first.

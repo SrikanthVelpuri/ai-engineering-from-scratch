@@ -1,10 +1,10 @@
 # Matrix Transformations — Real-World Stories
 
-> Neural network layers are just chained transformations. So are robot poses, drone cameras, and aircraft frames.
+> Neural net layers are chained transformations. So are robot poses and drone cameras. Get one inverse wrong and you report a crack on the wrong aircraft panel.
 
-## The Mental Model
+## The Big Idea
 
-A matrix is a function from one vector space to another. Chain them and you get arbitrary geometry. Get one inverse wrong and you report cracks on the wrong aircraft panel.
+A matrix is a function from one space to another. Chain a few and you can describe any geometry. The catch: order matters, and a single sign flip can mirror your world.
 
 ```mermaid
 flowchart LR
@@ -31,10 +31,8 @@ v = np.array([1.0, 0.0])
 R = rotation_2d(np.pi/4)
 S = scaling(2, 1)
 
-rotate_then_scale = S @ R @ v
-scale_then_rotate = R @ S @ v
-print(rotate_then_scale)  # [1.414..., 0.707...]
-print(scale_then_rotate)  # [1.414..., 1.414...]
+print(S @ R @ v)   # [1.414..., 0.707...]
+print(R @ S @ v)   # [1.414..., 1.414...]
 ```
 
 ## Code: 3D Pose Composition (Robot / Drone Pattern)
@@ -46,32 +44,32 @@ def transform_4x4(R, t):
     T[:3,  3] = t
     return T
 
-# Camera-to-world transform
-R_cw = rotation_2d(0)  # stub; use scipy.spatial.transform.Rotation in practice
-T_cam_world  = transform_4x4(np.eye(3), np.array([10.0, 5.0, 2.0]))
-T_world_air  = transform_4x4(np.eye(3), np.array([0.0, 0.0, -3.0]))
+T_cam_world = transform_4x4(np.eye(3), np.array([10.0, 5.0, 2.0]))
+T_world_air = transform_4x4(np.eye(3), np.array([0.0, 0.0, -3.0]))
 
-# Chain: a point in camera frame → aircraft frame
 T_cam_air = T_world_air @ T_cam_world
 point_cam = np.array([1.0, 0.5, 4.0, 1.0])
 point_air = T_cam_air @ point_cam
 ```
 
-## Amazon — Kiva Warehouse Robots
+## Story 1: Amazon — The Warehouse Robot That Saw Phantom Collisions
 
-Each Kiva robot's pose is a 4x4 transformation matrix. When it picks up a shelf, the shelf's frame becomes `T_robot @ T_shelf_offset`. "Phantom collisions" reported by the fleet manager were traced to a missing inverse — the offset was applied twice, placing the shelf 60 cm from where the robot actually was. Diagnosing it required someone fluent in transform chains.
+Each Kiva robot in an Amazon warehouse carries a shelf. The shelf's location is the robot's pose times an offset matrix. Simple.
 
-## American Airlines — Drone Tail Inspection
+One day the fleet manager started flagging "phantom collisions" — shelves crashing into things that weren't there. After hours of head-scratching, an engineer traced it: a missing inverse. The offset was being applied twice, placing the shelf 60 cm from where the robot actually was.
 
-AA inspects aircraft tails with drones. Each drone image is projected through:
-1. Camera intrinsics (K)
-2. Drone pose (extrinsics)
-3. Aircraft model frame
+Diagnosing it took someone fluent in transform chains who could ask "what does each matrix represent, and which direction does it go?"
 
-A sign error in step 2's z-axis meant reported crack locations were mirrored — maintenance crews were sent to inspect undamaged panels while real damage went unflagged. The fix was one negative sign. The diagnosis required reading the full chain and finding which transform was lying.
+## Story 2: American Airlines — One Negative Sign That Sent Crews to the Wrong Panel
 
-## Takeaways
+AA inspects aircraft tails with drones. Each photo passes through three transforms: camera intrinsics → drone pose → aircraft frame. That tells maintenance exactly where a crack is.
+
+A sign error in the drone pose's z-axis meant every crack location got mirrored. Maintenance crews were sent to inspect undamaged panels. Real cracks went unflagged. Until someone read the chain end-to-end and asked "which transform is lying?"
+
+The fix was one minus sign. The diagnosis required reading transforms like sentences.
+
+## Remember This
 
 - Matrix multiplication is *not* commutative. Order = operation order.
-- Every "frame conversion" bug is a transform composed in the wrong order or direction.
-- The right mental check: pick a known point, push it through the chain by hand, and see if it lands where you expect.
+- Every "frame conversion" bug is a transform in the wrong order or direction.
+- Sanity check: pick a known point, push it through the chain by hand, see if it lands where you expect.

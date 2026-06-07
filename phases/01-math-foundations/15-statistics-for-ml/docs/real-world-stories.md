@@ -1,10 +1,10 @@
 # Statistics for ML — Real-World Stories
 
-> A p-value of 0.04 in one of 1000 tests is noise. Not knowing that ships bad features.
+> A p-value of 0.04 in one of 1,000 tests is noise. Not knowing that ships bad features.
 
-## The Mental Model
+## The Big Idea
 
-Statistical thinking is about distinguishing signal from noise. Hypothesis tests, confidence intervals, and multiple-testing corrections are tools for that distinction.
+Statistics is about separating signal from noise. Hypothesis tests, confidence intervals, and multiple-testing corrections are the tools for that job. Skip them and you'll celebrate randomness.
 
 ```mermaid
 flowchart TB
@@ -18,7 +18,7 @@ flowchart TB
     style F fill:#ffd966
 ```
 
-## Code: Bootstrap CI (Distribution-Free)
+## Code: Bootstrap CI (No Distribution Assumed)
 
 ```python
 import numpy as np
@@ -59,28 +59,20 @@ ps = np.concatenate([np.random.uniform(0, 1, 990), np.random.uniform(0, 0.01, 10
 print("rejections:", benjamini_hochberg(ps, q=0.05).sum())
 ```
 
-## Code: Hierarchical Pooling for Rare Events
+## Story 1: Amazon — Why 500 False "Wins" a Day Would Ruin the Site
 
-```python
-# Pilot training: did simulator scenario reduce go-arounds?
-# Each pilot has few observations; pool via hierarchical mean.
-import numpy as np
+Amazon runs ~10,000 experiments at once. Without any correction for multiple testing, you'd expect about 500 features per day to look like wins purely by chance. Imagine shipping 500 random changes a day. The site would become a noise machine.
 
-per_pilot_rates = np.random.beta(2, 100, size=14_000)  # tiny rates
-overall_rate = per_pilot_rates.mean()
-# Shrinkage: per-pilot estimate moves toward overall_rate proportional to noise
-```
+The internal experimentation platform enforces sequential testing and false-discovery-rate control by default. You can't ship just because the dashboard turned green — you have to actually *read* the report. Statistics literacy is a hiring filter for the team.
 
-## Amazon — Experimentation Platform
+## Story 2: American Airlines — Did the Simulator Training Actually Reduce Go-Arounds?
 
-Amazon runs ~10,000 experiments simultaneously. Without multiple-testing correction, you'd see ~500 false "wins" a day — and ship 500 random changes. The platform enforces sequential testing (mSPRT) and FDR control by default. Anyone launching a feature has to *read* the experiment report, not just see "green." Statistics literacy is a hiring filter for the team.
+AA wanted to know: did the new simulator scenario reduce go-arounds? With 14,000 pilots and go-arounds being rare events, naive per-pilot comparisons drowned in noise. Each pilot just doesn't have enough flights to measure.
 
-## American Airlines — Pilot Training Analytics
+The team used hierarchical models that pool information across pilots while still tracking individual variance. The result is an estimate you can actually trust. Rolling out training that *looks* like it works but doesn't replicate is worse than no training at all — pilots lose faith.
 
-Did the new simulator scenario reduce go-arounds? With ~14,000 pilots and rare events (go-arounds are infrequent), naive per-pilot comparisons are dominated by noise. The training analytics team uses hierarchical models that pool across pilots while preserving individual variance. Rolling out a training change that *looks* like it works but doesn't replicate is worse than no training change.
-
-## Takeaways
+## Remember This
 
 - Confidence intervals beat p-values for decision-making.
-- Multiple testing destroys naive p-values — always correct.
-- For rare-event metrics, use hierarchical / Bayesian shrinkage.
+- Multiple testing destroys naive p-values. Always correct.
+- For rare-event metrics, use hierarchical or Bayesian shrinkage.

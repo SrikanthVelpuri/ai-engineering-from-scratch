@@ -2,9 +2,9 @@
 
 > Confusing P(A|B) with P(B|A) costs airlines aircraft and customers their accounts.
 
-## The Mental Model
+## The Big Idea
 
-Bayes inverts conditionals. Your sensor tells you P(evidence | hypothesis); you want P(hypothesis | evidence). The prior matters — sometimes more than the data.
+Bayes flips a conditional around. Your test tells you "given the disease, how often does the test fire?" — but you actually need "given the test fired, do I have the disease?" The prior matters. Often more than the data does.
 
 ```mermaid
 flowchart LR
@@ -19,35 +19,29 @@ flowchart LR
 ```python
 def posterior(prior, sensitivity, fpr):
     """P(disease | positive test)"""
-    p_pos_given_disease = sensitivity
-    p_pos_given_no_disease = fpr
-    p_pos = p_pos_given_disease * prior + p_pos_given_no_disease * (1 - prior)
-    return p_pos_given_disease * prior / p_pos
+    p_pos = sensitivity * prior + fpr * (1 - prior)
+    return sensitivity * prior / p_pos
 
-# Highly accurate fraud model: 99% sensitivity, 1% FPR
-# But fraud is rare: 0.1% prior
+# "99% accurate" fraud model, fraud is rare (0.1% base rate)
 print(posterior(prior=0.001, sensitivity=0.99, fpr=0.01))
 # → 0.09 — most "fraud" alerts are false positives!
 
-# Wrong geo prior (Singapore Black Friday = high fraud)
+# Different prior: Singapore Black Friday (5% base rate)
 print(posterior(prior=0.05, sensitivity=0.99, fpr=0.01))
 # → 0.84 — same model, different prior, very different action
 ```
 
-## Code: Online Bayesian Updating (Predictive Maintenance)
+## Code: Online Bayesian Updating
 
 ```python
 import numpy as np
 
-# Beta-Binomial: track P(engine fails this month) per engine
 alpha, beta = 1.0, 100.0  # prior: ~1% failure rate
 
 flights = [("normal",)] * 200 + [("anomaly",)] * 5 + [("normal",)] * 50
 
 for obs, in flights:
     if obs == "anomaly":
-        # Anomaly is weak evidence of impending failure: P(anomaly|failure)=0.6, P(anomaly|ok)=0.05
-        # Bayesian update via likelihood ratio
         alpha += 0.6
         beta  += 0.05
     else:
@@ -58,16 +52,22 @@ mean = alpha / (alpha + beta)
 print(f"Updated failure-prob estimate: {mean:.4f}")
 ```
 
-## Amazon — Fraud Detection at Checkout
+## Story 1: Amazon — Why a "99% Accurate" Fraud Model Blocks Real Customers
 
-A "99% accurate" fraud model is useless if you apply a uniform prior. P(fraud) varies by geography, hour, channel, and seasonality. Engineers who built the system bake region- and time-specific priors directly into scoring. A Singapore Black Friday transaction gets the *Singapore Black Friday prior*, not the global one — otherwise legitimate customers are blocked at 100x the right rate.
+A fraud model that's 99% accurate sounds great. Apply it with a uniform prior and watch it block legitimate customers at 100x the right rate. Why? Because fraud is rare — most "positive" alerts are false alarms.
 
-## American Airlines — Predictive Maintenance
+Amazon's fraud team bakes priors into scoring: a Singapore Black Friday transaction gets a *Singapore Black Friday* prior, not the global one. A Sunday-morning grocery purchase in Iowa gets a different one. Same model, different priors, very different decisions.
 
-An engine sensor anomaly fires. P(failure | anomaly) is **not** P(anomaly | failure). The sensitivity of an anomaly detector vs the rarity of actual failure means a "98% accurate" detector still produces mostly false alarms. AA's modern maintenance pipeline uses Bayesian updating across every flight — each successful flight is *evidence the engine is healthy*, and updates the posterior downward. Ground decisions are based on posterior probability, not raw alerts.
+The model is the easy part. Knowing the right prior to apply is the engineering.
 
-## Takeaways
+## Story 2: American Airlines — Why Grounding a Plane Needs a Posterior, Not an Alert
+
+An engine sensor flags an anomaly. Should you ground the plane? Naive reading: "98% accurate detector, ground it." Real answer: failures are so rare that "98% accurate" still produces mostly false alarms.
+
+AA's maintenance system uses Bayes online. Every safe flight is *evidence the engine is healthy* and updates the posterior downward. Every anomaly nudges it up. Grounding decisions come from the posterior probability, not from raw alerts. Otherwise you ground perfectly healthy aircraft constantly and ignore the few real signals.
+
+## Remember This
 
 - Always ask: what is the prior?
-- P(disease | positive) and P(positive | disease) are rarely close — confusing them creates either over- or under-reaction.
+- P(disease | positive) and P(positive | disease) are rarely close. Confusing them creates either panic or complacency.
 - Bayes makes systems *adaptive*: every observation updates beliefs.

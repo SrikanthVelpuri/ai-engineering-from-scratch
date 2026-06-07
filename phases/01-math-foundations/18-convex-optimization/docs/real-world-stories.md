@@ -2,9 +2,9 @@
 
 > A convex problem has one minimum — and you can prove it. A non-convex one might hide a $10M better answer you'll never find.
 
-## The Mental Model
+## The Big Idea
 
-If both the objective and the feasible region are convex, every local minimum is the global minimum. Identifying convex structure (or a convex relaxation of a hard problem) is half the battle.
+If both the objective and the feasible region are convex, every local minimum is the global minimum. Spotting that structure (or finding a convex relaxation of a hard problem) is half the battle.
 
 ```mermaid
 flowchart LR
@@ -24,7 +24,6 @@ flowchart LR
 import cvxpy as cp
 import numpy as np
 
-# 5 fuel hedging instruments; pick allocations to minimize variance s.t. cover X gallons
 n = 5
 prices = np.array([3.1, 3.0, 3.2, 2.95, 3.05])
 Sigma  = np.array([[0.04, 0.01, 0.00, 0.00, 0.01],
@@ -49,30 +48,32 @@ print("variance:    ", prob.value)
 import cvxpy as cp
 import numpy as np
 
-# Assign K items to N bins to minimize cost — relax binary x to [0,1]
 N, K = 20, 50
 cost = np.random.rand(N, K)
 
-x = cp.Variable((N, K))                       # relaxation: continuous
+x = cp.Variable((N, K))
 prob = cp.Problem(
     cp.Minimize(cp.sum(cp.multiply(cost, x))),
-    [x >= 0, x <= 1, cp.sum(x, axis=0) == 1]   # each item to one bin
+    [x >= 0, x <= 1, cp.sum(x, axis=0) == 1]
 )
 prob.solve()
 print("LP relaxation lower bound:", prob.value)
-# Round to integer; bound the rounding gap against the LP value
 ```
 
-## Amazon — Inventory Placement
+## Story 1: Amazon — Why Inventory Placement Can Say "We're Within 2% of Optimal"
 
-Where to stock each SKU across ~175 fulfillment centers is integer in reality (full units) but convex when relaxed. Engineers solve the LP relaxation, round, and *prove* the optimality gap is < 2%. Without recognizing convex structure you don't know if your heuristic is 2% off optimal or 30% — and you can't justify the placement to leadership.
+Where to stock each SKU across ~175 fulfillment centers is technically an integer problem — you can't stock 1.4 units. But the *relaxation* (allow fractional units) is convex. Solve the relaxation, round to integers, and you can mathematically bound the gap.
 
-## American Airlines — Fuel Hedging
+Engineers do exactly this. The result isn't just a plan; it's a plan plus a guarantee: "this is within 2% of optimal." That's the language leadership wants. A heuristic alone gives a plan but no guarantee — and you can't tell if you're 2% off or 30%.
 
-Treasury hedges jet fuel price risk by buying futures. Allocating dollars across instruments to minimize portfolio variance subject to coverage constraints is a convex QP. Solved with `cvxpy`, finishes in milliseconds, returns a *provably optimal* allocation. Grid-searching this would be wasteful and uncertifiable.
+## Story 2: American Airlines — Why Fuel Hedging Is Solved in Milliseconds With a Proof
 
-## Takeaways
+Treasury hedges jet fuel price risk by buying futures. The question is: how much of each instrument do you buy to minimize variance while still covering your needed gallons?
 
-- Recognize convex structure — most "hard" problems have a useful convex relaxation.
+That problem is a convex quadratic program. Tools like `cvxpy` solve it in milliseconds and return an answer that's *provably* optimal. Grid-searching the same problem would be slow, wasteful, and uncertifiable — and treasury would have no math to defend the allocation in an audit.
+
+## Remember This
+
+- Look for convex structure first. Most "hard" problems have a useful convex relaxation.
 - Convex solvers give you certificates of optimality, not just answers.
-- For mixed-integer: relax, solve, round, and *bound the gap*.
+- For mixed-integer: relax → solve → round → *bound the gap*.
